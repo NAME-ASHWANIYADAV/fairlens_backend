@@ -1,5 +1,6 @@
 """
-Grok API Client — xAI's Grok model for AI-powered analysis
+Groq AI Client — Fast LLM inference for bias analysis
+Uses Llama 3.3 70B via Groq's blazing-fast inference API
 """
 
 import os
@@ -7,14 +8,14 @@ import httpx
 from typing import Optional
 
 
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-GROK_MODEL = "grok-3-mini-fast"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def _get_api_key() -> str:
-    key = os.getenv("GROK_API_KEY", "")
-    if not key or key == "your_grok_api_key_here":
-        raise ValueError("GROK_API_KEY not set. Add it to backend/.env")
+    key = os.getenv("GROQ_API_KEY", "")
+    if not key:
+        raise ValueError("GROQ_API_KEY not set. Add it to backend/.env")
     return key
 
 
@@ -23,28 +24,30 @@ async def chat_completion(
     temperature: float = 0.7,
     max_tokens: int = 2048,
 ) -> str:
-    """Send messages to Grok and get a completion."""
+    """Send messages to Groq and get a completion."""
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
-            GROK_API_URL,
+            GROQ_API_URL,
             headers={
                 "Authorization": f"Bearer {_get_api_key()}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": GROK_MODEL,
+                "model": GROQ_MODEL,
                 "messages": messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             },
         )
+        if not response.is_success:
+            print(f"[Groq API Error] Status: {response.status_code}, Body: {response.text}")
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
 
 async def detect_attributes(columns: list[str], sample_rows: list[dict]) -> dict:
-    """Use Grok to identify protected attributes and outcome column."""
+    """Use AI to identify protected attributes and outcome column."""
     prompt = f"""You are an AI fairness expert analyzing an Indian dataset.
 
 Given these column names and sample data, identify:
@@ -121,22 +124,24 @@ async def chat_about_bias(
     chat_history: list[dict],
 ) -> str:
     """Chat with user about bias findings. Supports Hindi/English."""
-    system_prompt = f"""You are FairLens AI Bias Explorer. You have analyzed a dataset and found these results:
+    system_prompt = f"""You are FairLens AI, a courtroom-grade bias auditor. You have analyzed a dataset:
 
 Dataset: {report_context.get('filename', 'Unknown')} ({report_context.get('row_count', '?')} records)
-Overall Fairness Score: {report_context.get('score', '?')}/100
+Fairness Score: {report_context.get('score', '?')}/100
+Protected Attributes: {report_context.get('protected_attributes', [])}
+Outcome Column: {report_context.get('outcome_column', 'unknown')}
 Findings: {report_context.get('findings', [])}
 
-Rules:
-- Answer in the SAME LANGUAGE the user writes in (Hindi or English)
-- Always cite specific numbers from the analysis
-- If asked for code, provide Python code snippets
-- Be empathetic about impact on marginalized communities
-- If asked about a group not in the data, say so clearly
-- Keep responses concise but data-rich"""
+STRICT RULES:
+1. LANGUAGE: ALWAYS respond in ENGLISH by default. ONLY respond in Hindi if the user's message contains Hindi/Devanagari script (like "kya", "hai", "kaise", or हिंदी characters).
+2. Always cite specific numbers and percentages from the findings above.
+3. Use bullet points and **bold** for readability.
+4. Keep responses concise — max 150 words. No lengthy essays.
+5. Be empathetic about impact on marginalized Indian communities.
+6. If asked about a group not in the data, say so clearly."""
 
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(chat_history[-10:])  # last 10 messages for context
+    messages.extend(chat_history[-10:])
     messages.append({"role": "user", "content": user_message})
 
     return await chat_completion(messages=messages, temperature=0.6)

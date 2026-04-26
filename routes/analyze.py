@@ -116,6 +116,12 @@ async def get_report(session_id: str):
     return report
 
 
+@router.get("/reports")
+async def list_reports():
+    """List all stored audit reports."""
+    return list(reports.values())
+
+
 def _fallback_detection(columns: list[str], df) -> dict:
     """Heuristic fallback when Grok API is unavailable."""
     protected_keywords = {
